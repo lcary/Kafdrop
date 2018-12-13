@@ -58,6 +58,10 @@ public class MessageController
    @Autowired
    private SchemaRegistryConfiguration.SchemaRegistryProperties schemaRegistryProperties;
 
+   public static enum DeserializerType {
+      DEFAULT, AVRO;
+   }
+
    /**
     * Human friendly view of reading messages.
     * @param topicName Name of topic
@@ -79,6 +83,7 @@ public class MessageController
          defaultForm.setCount(10l);
          defaultForm.setOffset(0l);
          defaultForm.setPartition(0);
+         defaultForm.setDeserializer(DeserializerType.DEFAULT);
 
          model.addAttribute("messageForm", defaultForm);
       }
@@ -87,10 +92,14 @@ public class MessageController
          .orElseThrow(() -> new TopicNotFoundException(topicName));
       model.addAttribute("topic", topic);
 
-      final MessageDeserializer deserializer = getDeserializer(topicName);
+      model.addAttribute("defaultDeserializerType", DeserializerType.DEFAULT);
+      model.addAttribute("deserializerTypes", DeserializerType.values());
 
       if (!messageForm.isEmpty() && !errors.hasErrors())
       {
+         final MessageDeserializer deserializer = getDeserializer(
+               topicName, messageForm.getDeserializer());
+
          model.addAttribute("messages",
                             messageInspector.getMessages(topicName,
                                                          messageForm.getPartition(),
@@ -101,20 +110,6 @@ public class MessageController
 
       return "message-inspector";
    }
-
-   private MessageDeserializer getDeserializer(String topicName) {
-      final MessageDeserializer deserializer;
-
-      if (true) {
-         deserializer = new DefaultMessageDeserializer();
-      } else {
-         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
-         deserializer = new AvroMessageDeserializer(topicName, schemaRegistryUrl);
-      }
-
-      return deserializer;
-   }
-
 
    /**
     * Return a JSON list of all partition offset info for the given topic. If specific partition
@@ -148,7 +143,8 @@ public class MessageController
       }
       else
       {
-         final MessageDeserializer deserializer = getDeserializer(topicName);
+         // Currently, only default deserialization supported via JSON API.
+         final MessageDeserializer deserializer = new DefaultMessageDeserializer();
 
          List<Object> messages = new ArrayList<>();
          List<MessageVO> vos = messageInspector.getMessages(
@@ -165,6 +161,19 @@ public class MessageController
 
          return messages;
       }
+   }
+
+   private MessageDeserializer getDeserializer(String topicName, DeserializerType deserializerType) {
+      final MessageDeserializer deserializer;
+
+      if (deserializerType == DeserializerType.AVRO) {
+         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+         deserializer = new AvroMessageDeserializer(topicName, schemaRegistryUrl);
+      } else {
+         deserializer = new DefaultMessageDeserializer();
+      }
+
+      return deserializer;
    }
 
    /**
@@ -197,11 +206,24 @@ public class MessageController
       @JsonProperty("lastOffset")
       private Long count;
 
-      public PartitionOffsetInfo(int partition, long offset, long count)
+      @NotNull
+//      @Min(0)
+      private DeserializerType deserializer;
+
+      public PartitionOffsetInfo(int partition, long offset, long count, DeserializerType deserializer)
       {
          this.partition = partition;
          this.offset = offset;
          this.count = count;
+         this.deserializer = deserializer;
+      }
+
+      public PartitionOffsetInfo(int partition, long offset, long count)
+      {
+         this(partition, offset, count, DeserializerType.DEFAULT);
+//         this.partition = partition;
+//         this.offset = offset;
+//         this.count = count;
       }
 
       public PartitionOffsetInfo()
@@ -243,6 +265,16 @@ public class MessageController
       public void setCount(Long count)
       {
          this.count = count;
+      }
+
+      public DeserializerType getDeserializer()
+      {
+         return deserializer;
+      }
+
+      public void setDeserializer(DeserializerType deserializer)
+      {
+         this.deserializer = deserializer;
       }
    }
 }
