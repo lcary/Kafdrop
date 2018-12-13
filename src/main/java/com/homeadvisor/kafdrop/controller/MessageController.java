@@ -20,12 +20,18 @@ package com.homeadvisor.kafdrop.controller;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.homeadvisor.kafdrop.config.MessageFormatConfiguration;
 import com.homeadvisor.kafdrop.config.SchemaRegistryConfiguration;
 import com.homeadvisor.kafdrop.model.MessageVO;
 import com.homeadvisor.kafdrop.model.TopicVO;
 import com.homeadvisor.kafdrop.service.KafkaMonitor;
 import com.homeadvisor.kafdrop.service.MessageInspector;
 import com.homeadvisor.kafdrop.service.TopicNotFoundException;
+import com.homeadvisor.kafdrop.util.AvroMessageDeserializer;
+import com.homeadvisor.kafdrop.util.DefaultMessageDeserializer;
+import com.homeadvisor.kafdrop.util.MessageDeserializer;
+import com.homeadvisor.kafdrop.util.MessageFormat;
+
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiResponse;
 import io.swagger.annotations.ApiResponses;
@@ -53,6 +59,9 @@ public class MessageController
    private MessageInspector messageInspector;
 
    @Autowired
+   private MessageFormatConfiguration.MessageFormatProperties messageFormatProperties;
+
+   @Autowired
    private SchemaRegistryConfiguration.SchemaRegistryProperties schemaRegistryProperties;
 
    /**
@@ -69,6 +78,8 @@ public class MessageController
                                  BindingResult errors,
                                  Model model)
    {
+      final MessageFormat defaultFormat = messageFormatProperties.getFormat();
+
       if (messageForm.isEmpty())
       {
          final PartitionOffsetInfo defaultForm = new PartitionOffsetInfo();
@@ -76,6 +87,7 @@ public class MessageController
          defaultForm.setCount(10l);
          defaultForm.setOffset(0l);
          defaultForm.setPartition(0);
+         defaultForm.setFormat(defaultFormat);
 
          model.addAttribute("messageForm", defaultForm);
       }
@@ -84,16 +96,21 @@ public class MessageController
          .orElseThrow(() -> new TopicNotFoundException(topicName));
       model.addAttribute("topic", topic);
 
-      final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+      model.addAttribute("defaultFormat", defaultFormat);
+      model.addAttribute("messageFormats", MessageFormat.values());
 
       if (!messageForm.isEmpty() && !errors.hasErrors())
       {
+         final MessageDeserializer deserializer = getDeserializer(
+               topicName, messageForm.getFormat());
+
          model.addAttribute("messages",
                             messageInspector.getMessages(topicName,
                                                          messageForm.getPartition(),
                                                          messageForm.getOffset(),
                                                          messageForm.getCount(),
-                                                         schemaRegistryUrl));
+                                                         deserializer));
+
       }
 
       return "message-inspector";
@@ -131,7 +148,8 @@ public class MessageController
       }
       else
       {
-         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+         // Currently, only default deserialization supported via JSON API.
+         final MessageDeserializer deserializer = new DefaultMessageDeserializer();
 
          List<Object> messages = new ArrayList<>();
          List<MessageVO> vos = messageInspector.getMessages(
@@ -139,7 +157,7 @@ public class MessageController
                partition,
                offset,
                count,
-               schemaRegistryUrl);
+               deserializer);
 
          if(vos != null)
          {
@@ -148,6 +166,19 @@ public class MessageController
 
          return messages;
       }
+   }
+
+   private MessageDeserializer getDeserializer(String topicName, MessageFormat format) {
+      final MessageDeserializer deserializer;
+
+      if (format == MessageFormat.AVRO) {
+         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+         deserializer = new AvroMessageDeserializer(topicName, schemaRegistryUrl);
+      } else {
+         deserializer = new DefaultMessageDeserializer();
+      }
+
+      return deserializer;
    }
 
    /**
@@ -180,11 +211,19 @@ public class MessageController
       @JsonProperty("lastOffset")
       private Long count;
 
-      public PartitionOffsetInfo(int partition, long offset, long count)
+      private MessageFormat format;
+
+      public PartitionOffsetInfo(int partition, long offset, long count, MessageFormat format)
       {
          this.partition = partition;
          this.offset = offset;
          this.count = count;
+         this.format = format;
+      }
+
+      public PartitionOffsetInfo(int partition, long offset, long count)
+      {
+         this(partition, offset, count, MessageFormat.DEFAULT);
       }
 
       public PartitionOffsetInfo()
@@ -226,6 +265,16 @@ public class MessageController
       public void setCount(Long count)
       {
          this.count = count;
+      }
+
+      public MessageFormat getFormat()
+      {
+         return format;
+      }
+
+      public void setFormat(MessageFormat format)
+      {
+         this.format = format;
       }
    }
 }
