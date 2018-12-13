@@ -23,7 +23,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.homeadvisor.kafdrop.config.SchemaRegistryConfiguration;
 import com.homeadvisor.kafdrop.model.MessageVO;
 import com.homeadvisor.kafdrop.model.TopicVO;
+import com.homeadvisor.kafdrop.service.AvroMessageDeserializer;
+import com.homeadvisor.kafdrop.service.DefaultMessageDeserializer;
 import com.homeadvisor.kafdrop.service.KafkaMonitor;
+import com.homeadvisor.kafdrop.service.MessageDeserializer;
 import com.homeadvisor.kafdrop.service.MessageInspector;
 import com.homeadvisor.kafdrop.service.TopicNotFoundException;
 import io.swagger.annotations.ApiOperation;
@@ -84,7 +87,7 @@ public class MessageController
          .orElseThrow(() -> new TopicNotFoundException(topicName));
       model.addAttribute("topic", topic);
 
-      final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+      final MessageDeserializer deserializer = getDeserializer(topicName);
 
       if (!messageForm.isEmpty() && !errors.hasErrors())
       {
@@ -93,11 +96,25 @@ public class MessageController
                                                          messageForm.getPartition(),
                                                          messageForm.getOffset(),
                                                          messageForm.getCount(),
-                                                         schemaRegistryUrl));
+                                                         deserializer));
       }
 
       return "message-inspector";
    }
+
+   private MessageDeserializer getDeserializer(String topicName) {
+      final MessageDeserializer deserializer;
+
+      if (true) {
+         deserializer = new DefaultMessageDeserializer();
+      } else {
+         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+         deserializer = new AvroMessageDeserializer(topicName, schemaRegistryUrl);
+      }
+
+      return deserializer;
+   }
+
 
    /**
     * Return a JSON list of all partition offset info for the given topic. If specific partition
@@ -131,7 +148,7 @@ public class MessageController
       }
       else
       {
-         final String schemaRegistryUrl = schemaRegistryProperties.getConnect();
+         final MessageDeserializer deserializer = getDeserializer(topicName);
 
          List<Object> messages = new ArrayList<>();
          List<MessageVO> vos = messageInspector.getMessages(
@@ -139,7 +156,7 @@ public class MessageController
                partition,
                offset,
                count,
-               schemaRegistryUrl);
+               deserializer);
 
          if(vos != null)
          {
