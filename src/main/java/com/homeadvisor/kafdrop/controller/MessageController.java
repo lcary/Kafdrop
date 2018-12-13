@@ -206,8 +206,6 @@ public class MessageController
       @JsonProperty("lastOffset")
       private Long count;
 
-      @NotNull
-//      @Min(0)
       private DeserializerType deserializer;
 
       public PartitionOffsetInfo(int partition, long offset, long count, DeserializerType deserializer)
@@ -221,9 +219,6 @@ public class MessageController
       public PartitionOffsetInfo(int partition, long offset, long count)
       {
          this(partition, offset, count, DeserializerType.DEFAULT);
-//         this.partition = partition;
-//         this.offset = offset;
-//         this.count = count;
       }
 
       public PartitionOffsetInfo()
